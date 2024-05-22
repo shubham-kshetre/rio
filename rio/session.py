@@ -14,12 +14,11 @@ import time
 import traceback
 import typing
 import weakref
-from collections.abc import Callable, Coroutine, Iterable
+from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from dataclasses import dataclass
 from datetime import tzinfo
 from typing import Any, Literal, cast, overload
 
-import aiofiles
 import fastapi
 import unicall
 import uniserde
@@ -90,17 +89,46 @@ class Session(unicall.Unicall):
         self,
         app_server_: app_server.AppServer,
         session_token: str,
+        send_message: Callable[[Jsonable], Awaitable[None]],
+        receive_message: Callable[[], Awaitable[Jsonable]],
+        websocket: fastapi.WebSocket,
         client_ip: str,
         client_port: int,
         user_agent: str,
+        timezone: tzinfo,
+        decimal_separator: str,  # == 1 character
+        thousands_separator: str,  # <= 1 character
+        window_width: float,
+        window_height: float,
+        base_url: rio.URL,
+        theme_: theme.Theme,
     ):
         super().__init__(
-            send_message=dummy_send_message,
-            receive_message=dummy_receive_message,
+            send_message=send_message,
+            receive_message=receive_message,
         )
 
         self._app_server = app_server_
         self._session_token = session_token
+        self.timezone = timezone
+        self._decimal_separator = decimal_separator
+        self._thousands_separator = thousands_separator
+
+        self.window_width = window_width
+        self.window_height = window_height
+
+        self._base_url = base_url
+        self.theme = theme_
+
+        # This attribute is initialized after the Session has been instantiated,
+        # because the Session must already exist when the Component is created
+        self._root_component: root_components.HighLevelRootComponent
+
+        # These are initialized with dummy values. Once the Session has been
+        # instantiated, the page guards will run and then these will be set to
+        # the correct values.
+        self._active_page_url = base_url
+        self._active_page_instances: tuple[rio.Page, ...] = tuple()
 
         # Components need unique ids, but we don't want them to be globally unique
         # because then people could guesstimate the approximate number of
@@ -141,25 +169,8 @@ class Session(unicall.Unicall):
         self._registered_font_names: dict[rio.Font, str] = {}
         self._registered_font_assets: dict[rio.Font, list[assets.Asset]] = {}
 
-        # These are injected by the app server after the session has already
-        # been created
-        self._root_component: root_components.HighLevelRootComponent
-        self.timezone: tzinfo
-
-        self._decimal_separator: str  # == 1 character
-        self._thousands_separator: str  # <= 1 character
-
-        self.window_width: float
-        self.window_height: float
-
-        self._base_url: rio.URL
-        self._active_page_url: rio.URL
-        self._active_page_instances: tuple[rio.Page, ...]
-
-        self.theme: theme.Theme
-
         # The currently connected websocket, if any
-        self._websocket: fastapi.WebSocket | None = None
+        self._websocket: fastapi.WebSocket | None = websocket
 
         # Event indicating whether there is currently a connected websocket
         self._is_active_event = asyncio.Event()
@@ -265,7 +276,7 @@ class Session(unicall.Unicall):
         `True` if the app is running as a website, and `False` if it is running
         in a local window.
         """
-        return self._app_server.running_in_window
+        return not self._app_server.running_in_window
 
     @property
     def base_url(self) -> rio.URL:
@@ -1516,6 +1527,8 @@ window.history.{method}(null, "", {json.dumps(str(active_page_url))})
         settings_json: dict[str, object]
 
         if self.running_in_window:
+            import aiofiles
+
             try:
                 async with aiofiles.open(
                     self._get_settings_file_path()
@@ -1596,6 +1609,8 @@ window.history.{method}(null, "", {json.dumps(str(active_page_url))})
             tuple[user_settings_module.UserSettings, Iterable[str]]
         ],
     ) -> None:
+        import aiofiles
+
         for settings, dirty_attributes in settings_to_save:
             if settings.section_name:
                 section = cast(
@@ -1690,7 +1705,7 @@ window.history.{method}(null, "", {json.dumps(str(active_page_url))})
         `title`: The new window title.
         """
         if self.running_in_window:
-            import webview.util
+            import webview.util  # type: ignore
 
             window = await self._get_webview_window()
 
@@ -1734,17 +1749,19 @@ window.history.{method}(null, "", {json.dumps(str(active_page_url))})
 
         See also `save_file`, if you want to save a file instead of opening one.
 
+
         ## Parameters
 
-        file_extensions: A list of file extensions which the user is allowed
+        `file_extensions`: A list of file extensions which the user is allowed
             to select. Defaults to `None`, which means that the user may
             select any file.
 
-        multiple: Whether the user should pick a single file, or multiple.
+        `multiple`: Whether the user should pick a single file, or multiple.
+
 
         ## Raises
 
-        NoFileSelectedError: If the user did not select a file.
+        `NoFileSelectedError`: If the user did not select a file.
         """
         # Create a secret id and register the file upload with the app server
         upload_id = secrets.token_urlsafe()
@@ -1803,6 +1820,7 @@ window.history.{method}(null, "", {json.dumps(str(active_page_url))})
         See also `file_chooser` if you want to open a file instead of saving
         one.
 
+
         ## Parameters
 
         `file_contents`: The contents of the file to save. This can be a
@@ -1820,6 +1838,7 @@ window.history.{method}(null, "", {json.dumps(str(active_page_url))})
         if self.running_in_window:
             # FIXME: Find (1) a better way to get the active window and (2) a
             # way to open a file dialog without blocking the event loop.
+            import aiofiles
             import webview  # type: ignore
 
             window = await self._get_webview_window()
@@ -2197,20 +2216,31 @@ a.remove();
         await component._on_message(payload)
 
     @unicall.local(name="openUrl")
-    async def _open_url(self, url: str) -> None:
-        if self.running_in_window:
-            # If running in a window, clicking a link shouldn't open it in the
-            # app window. So the frontend sends us a message instructing us to
-            # open it in the browser instead.
-            import webbrowser
+    async def _open_url(self, url: str, open_in_new_tab: bool) -> None:
+        if self.running_as_website:
+            # This is actually security-critical. If we let random clients tell
+            # us to open new browser tabs, an attacker can waste the server's
+            # RAM. Opening new tabs is only allowed when running_in_window.
+            if open_in_new_tab:
+                raise RuntimeError(
+                    "open_in_new_tab is not allowed when not running_in_window"
+                )
 
-            webbrowser.open(url)
-        else:
-            # Navigate to the link. Note that this allows the client to inject
-            # a, possibly malicious, link. This is fine, because the client can
-            # do so anyway, simply by changing the URL in the browser. Thus the
-            # server has to be equipped to handle malicious page URLs anyway.
             self.navigate_to(url)
+            return
+
+        # If running_in_window, local urls are *always* navigated to, even if
+        # `open_in_new_tab` is `True`. The `run_in_window` code isn't designed
+        # to handle multiple sessions.
+        is_local_url = rio.URL(url).host == self._base_url.host
+        if is_local_url:
+            self.navigate_to(url)
+            return
+
+        # And if it's an external url, it must be opened in a web browser.
+        import webbrowser
+
+        webbrowser.open(url)
 
     @unicall.local(name="ping")
     async def _ping(self, ping: str) -> str:

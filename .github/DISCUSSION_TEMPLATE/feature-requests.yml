@@ -1,0 +1,56 @@
+title: '[Feature Request]'
+labels: ['enhancement']
+
+body:
+    - type: markdown
+      attributes:
+          value: |
+              **Thanks ❤️ for taking the time to fill out this feature request report!**
+              We kindly ask that you search to see if an [issue](https://github.com/rio-labs/rio/issues) already exists for your feature.
+
+              We are also happy to accept contributions from our users. For more details see our [contribution guidlines](https://github.com/rio-labs/rio/blob/dev/CONTRIBUTING.md).
+
+    - type: textarea
+      id: description
+      attributes:
+          label: Description
+          description: A clear and concise description of the feature you're interested in.
+          placeholder: 'Provide a clear and concise description of the feature request'
+      validations:
+          required: true
+
+    - type: textarea
+      id: suggested_solution
+      attributes:
+          label: Suggested Solution
+          description: Describe the solution you'd like.
+          placeholder: 'A clear and concise description of what you want to happen.'
+      validations:
+          required: true
+
+    - type: textarea
+      id: alternatives
+      attributes:
+          label: Alternatives
+          description: Describe alternatives you've considered.
+          placeholder: "A clear and concise description of any alternative solutions or features you've considered."
+      validations:
+          required: false
+
+    - type: textarea
+      id: additional_context
+      attributes:
+          label: Additional Context
+          description: Any additional information or context that might be relevant to understanding the feature request.
+          placeholder: 'Provide any additional context'
+      validations:
+          required: false
+
+    - type: textarea
+      id: related_issues
+      attributes:
+          label: Related Issues/Pull Requests
+          description: If applicable, reference any related GitHub issues or pull requests.
+          placeholder: 'Reference any related issues or pull requests'
+      validations:
+          required: false

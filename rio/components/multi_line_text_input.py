@@ -33,11 +33,8 @@ class MultiLineTextInput(KeyboardFocusableFundamentalComponent):
     """
     A user-editable text field.
 
-    It's similar to `TextInput`, but it allows the user to enter multiple lines of text.
-
-    `MultiLineTextInput` allows the user to enter a short text. The text can either be
-    shown in plain text or other sensitive information.
-
+    `MultiLineTextInput` is a text input field similar to the regular
+    `TextInput`, but allows the user to enter multiple lines of text.
 
     ## Attributes
 
@@ -60,48 +57,53 @@ class MultiLineTextInput(KeyboardFocusableFundamentalComponent):
 
     ## Examples
 
-    A minimal example of `MultiLineTextInput` with a default text of "" will be shown:
-    `Note`: The text will not be updated if the user changes the text in the input field.
-
-    ```python
-    rio.MultiLineTextInput(text="")
-    ```
-
-    You can easily bind state variables to track changes. If you want to make your
-    `MultiLineTextInput` more responsive, you can easily achieve this by adding a
-    lambda function call to e.g. on_change:
+    Here's a simple example that allows the user to enter a value and displays
+    it back to them:
 
     ```python
     class MyComponent(rio.Component):
-        text: str = ""
+        text: str = "Hello, World!"
 
         def build(self) -> rio.Component:
-            return rio.MultiLineTextInput(
-                text=self.bind().text,  # attribute binding
-                label="Write your comments here",
-                on_change=lambda event: print(event.text),
+            return rio.Column(
+                rio.MultiLineTextInput(
+                    # In order to retrieve a value from the component, we'll use
+                    # an attribute binding. This way our own value will be
+                    # updated whenever the user changes the text.
+                    text=self.bind().text,
+                    label="Enter a Text",
+                ),
+                rio.Text(f"You've typed: {self.text}"),
             )
     ```
 
-    You can also use a method for updating the input text and do whatever you want.
-    Note that methods are handy if you want to do more than just updating the input
-    text. For example run async code or update other components based on the input text:
+    Alternatively you can also attach an event handler to react to changes. This
+    is a little more verbose, but allows you to run arbitrary code when the user
+    changes the text:
 
     ```python
     class MyComponent(rio.Component):
-        text: str = ""
+        text: str = "Hello, World!"
 
-        def on_change_update_text(self, event: rio.MultiLineTextInputChangeEvent):
+        def on_value_change(self, event: rio.MultiLineTextInputChangeEvent):
+            # This function will be called whenever the input's value changes.
+            # We'll display the new value in addition to updating our own
+            # attribute.
             self.text = event.text
-            # You can do whatever you want in here
+            print(f"You've typed: {self.text}")
 
         def build(self) -> rio.Component:
             return rio.MultiLineTextInput(
                 text=self.text,
-                label="Write your comments here",
-                on_change=self.on_change_update_text,
+                label="Enter a Text",
+                on_change=self.on_value_change,
             )
     ```
+
+
+    ## Metadata
+
+    experimental: True
     """
 
     text: str = ""
